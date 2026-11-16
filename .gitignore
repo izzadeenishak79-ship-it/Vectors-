@@ -1,0 +1,12 @@
+# Android Studio / Gradle
+.gradle/
+build/
+**/build/
+local.properties
+*.iml
+.idea/
+
+# Signing credentials and private keys — never commit these.
+signing.properties
+*.jks
+*.keystore
