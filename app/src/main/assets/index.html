@@ -1,0 +1,1862 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>AeroVector 3D Studio - Fullscreen Zoom & Dynamic Vectors</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    :root {
+      --glass-surface: linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.04) 100%);
+      --glass-surface-card: rgba(18, 22, 48, 0.88);
+      --glass-border: rgba(255, 255, 255, 0.28);
+      --glass-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.4);
+      --glass-glow: 0 0 25px rgba(100, 210, 255, 0.25);
+
+      --col-lift: #0A84FF;
+      --col-weight: #FF453A;
+      --col-thrust: #30D158;
+      --col-drag: #FF9F0A;
+      --col-normal: #32D74B;
+      --col-friction: #FFD60A;
+      --col-net: #BF5AF2;
+      --col-vel: #64D2FF;
+
+      --text-pri: #ffffff;
+      --text-sec: rgba(255, 255, 255, 0.75);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); }
+    ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.25); border-radius: 10px; }
+
+    body {
+      background: radial-gradient(circle at 10% 20%, #151a3d 0%, #0a0c1d 40%, #020307 100%);
+      min-height: 100vh;
+      min-height: 100dvh;
+      color: var(--text-pri);
+      overflow-x: hidden;
+      display: flex;
+      justify-content: center;
+      padding: 12px;
+      padding-top: max(12px, env(safe-area-inset-top));
+      padding-bottom: max(12px, env(safe-area-inset-bottom));
+    }
+
+    .fluid-orb {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(80px);
+      z-index: 0;
+      pointer-events: none;
+      opacity: 0.55;
+      animation: morphLiquid 14s ease-in-out infinite alternate;
+    }
+    .orb-1 { width: 400px; height: 400px; background: linear-gradient(135deg, #7928ca, #ff0080); top: -10%; left: -10%; }
+    .orb-2 { width: 440px; height: 440px; background: linear-gradient(135deg, #0070f3, #00dfd8); bottom: -15%; right: -12%; animation-duration: 18s; }
+    .orb-3 { width: 280px; height: 280px; background: linear-gradient(135deg, #00c6ff, #0072ff); top: 40%; left: 35%; animation-duration: 12s; }
+
+    @keyframes morphLiquid {
+      0% { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(35px, 30px) scale(1.08); }
+    }
+
+    .app-shell {
+      width: 100%;
+      max-width: 1240px;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .glass-card {
+      background: var(--glass-surface);
+      backdrop-filter: blur(35px) saturate(210%) brightness(108%);
+      -webkit-backdrop-filter: blur(35px) saturate(210%) brightness(108%);
+      border: 1px solid var(--glass-border);
+      border-radius: 22px;
+      padding: 14px;
+      box-shadow: var(--glass-shadow);
+      transition: all 0.3s ease;
+      position: relative;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 18px;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .brand h1 { font-size: 18px; font-weight: 800; }
+
+    .pc-hotkeys {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      background: rgba(0, 0, 0, 0.35);
+      padding: 5px 12px;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: var(--text-sec);
+    }
+    .kbd {
+      background: rgba(255, 255, 255, 0.18);
+      border-radius: 4px;
+      padding: 1px 5px;
+      color: #fff;
+      font-weight: 700;
+    }
+    @media (min-width: 960px) { .pc-hotkeys { display: flex; } }
+
+    .lang-switcher {
+      display: flex;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 20px;
+      padding: 2px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+    .lang-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-sec);
+      font-size: 11px;
+      font-weight: 700;
+      padding: 6px 10px;
+      border-radius: 16px;
+      cursor: pointer;
+    }
+    .lang-btn.active { background: rgba(255, 255, 255, 0.25); color: #fff; }
+
+    .workspace-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+    @media (min-width: 960px) {
+      .workspace-grid { grid-template-columns: 1.25fr 1fr; gap: 18px; }
+    }
+    .column { display: flex; flex-direction: column; gap: 14px; }
+
+    .viewport-box {
+      position: relative;
+      width: 100%;
+      height: 330px;
+      border-radius: 20px;
+      overflow: hidden;
+      background: linear-gradient(180deg, #0e1730 0%, #150f29 100%);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      touch-action: none;
+      cursor: grab;
+    }
+    .viewport-box:active { cursor: grabbing; }
+    #three-canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+
+    .viewport-top-bar {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      pointer-events: none;
+      z-index: 15;
+    }
+    .overlay-badge {
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(10px);
+      padding: 5px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      font-weight: 600;
+      pointer-events: auto;
+    }
+    .viewport-tools {
+      display: flex;
+      gap: 6px;
+      pointer-events: auto;
+    }
+    .tool-btn {
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #fff;
+      padding: 6px 12px;
+      min-height: 34px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.2s;
+    }
+    .tool-btn:hover { background: rgba(255, 255, 255, 0.25); }
+
+    .viewport-zoom-bar {
+      position: absolute;
+      left: max(12px, env(safe-area-inset-left));
+      bottom: max(12px, env(safe-area-inset-bottom));
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      z-index: 20;
+      pointer-events: auto;
+    }
+    .zoom-btn {
+      width: 36px;
+      height: 36px;
+      background: rgba(14, 18, 42, 0.78);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #ffffff;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 800;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.35);
+    }
+    .zoom-btn:hover {
+      background: rgba(255, 255, 255, 0.25);
+      border-color: #fff;
+      transform: scale(1.08);
+    }
+    .zoom-btn:active {
+      transform: scale(0.94);
+    }
+
+    .settings-dropdown {
+      position: absolute;
+      top: 50px;
+      right: 10px;
+      width: 240px;
+      background: rgba(18, 22, 45, 0.94);
+      backdrop-filter: blur(35px) saturate(210%);
+      -webkit-backdrop-filter: blur(35px) saturate(210%);
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      border-radius: 16px;
+      padding: 12px;
+      box-shadow: 0 15px 35px rgba(0,0,0,0.6);
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 25;
+      pointer-events: auto;
+    }
+    .settings-dropdown.active { display: flex; }
+    .settings-title {
+      font-size: 10.5px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-sec);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+      padding-bottom: 4px;
+    }
+    .setting-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11.5px;
+      color: #fff;
+    }
+    .cam-btn-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 5px;
+    }
+    .mini-btn {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #fff;
+      padding: 6px 8px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .mini-btn:hover { background: rgba(255, 255, 255, 0.22); }
+
+    .viewport-box.is-fullscreen {
+      position: fixed !important;
+      inset: 0 !important;
+      width: 100vw !important;
+      width: 100dvw !important;
+      height: 100vh !important;
+      height: 100dvh !important;
+      z-index: 99999 !important;
+      border-radius: 0 !important;
+      border: none !important;
+    }
+
+    .fullscreen-classified-hud {
+      display: none;
+      position: absolute;
+      top: 18px;
+      right: 18px;
+      width: 325px;
+      max-width: 92vw;
+      background: var(--glass-surface-card);
+      backdrop-filter: blur(35px) saturate(220%);
+      -webkit-backdrop-filter: blur(35px) saturate(220%);
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      border-radius: 20px;
+      padding: 12px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65), inset 0 1px 1px rgba(255, 255, 255, 0.4);
+      flex-direction: column;
+      gap: 8px;
+      z-index: 100000;
+      pointer-events: auto;
+      touch-action: none;
+      transition: width 0.25s ease, padding 0.25s ease;
+    }
+
+    .viewport-box.is-fullscreen .fullscreen-classified-hud {
+      display: flex;
+    }
+
+    .hud-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 6px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+      cursor: move;
+      touch-action: none;
+    }
+    .hud-drag-grip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11.5px;
+      font-weight: 800;
+      color: #fff;
+    }
+    .grip-icon { font-size: 14px; opacity: 0.7; }
+
+    .hud-controls {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .fullscreen-classified-hud.is-shrunk {
+      width: 290px;
+      padding: 8px 10px;
+      gap: 6px;
+    }
+    .fullscreen-classified-hud.is-shrunk #hud-vector-content {
+      display: none !important;
+    }
+    .fullscreen-classified-hud.is-shrunk .hud-header {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    #hud-vector-content {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: calc(85dvh - 120px);
+      overflow-y: auto;
+      padding-right: 2px;
+      pointer-events: auto;
+    }
+
+    .v-group {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 14px;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .v-group-title {
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      display: flex;
+      justify-content: space-between;
+      color: var(--text-sec);
+    }
+
+    .hud-edit-row {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .hud-edit-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11.5px;
+      font-weight: 600;
+    }
+    .hud-edit-left {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .hud-slider-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      touch-action: pan-x;
+    }
+    .hud-mini-btn {
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      color: #fff;
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    .hud-mini-btn:hover { background: rgba(255, 255, 255, 0.25); }
+
+    .hud-slider {
+      -webkit-appearance: none;
+      flex: 1;
+      height: 5px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 3px;
+      outline: none;
+    }
+    .hud-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #ffffff;
+      cursor: pointer;
+      box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
+    }
+
+    .v-dot { width: 7px; height: 7px; border-radius: 50%; }
+
+    .hud-phases-row {
+      display: flex;
+      gap: 5px;
+      width: 100%;
+    }
+    .hud-phase-btn {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      color: #fff;
+      padding: 7px 4px;
+      border-radius: 10px;
+      font-size: 11.5px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      transition: all 0.2s;
+    }
+    .hud-phase-btn:hover { background: rgba(255, 255, 255, 0.25); }
+    .hud-phase-btn.active {
+      background: linear-gradient(135deg, rgba(10, 132, 255, 0.6), rgba(191, 90, 242, 0.5));
+      border-color: rgba(255, 255, 255, 0.7);
+    }
+
+    .vector-legend-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .v-chip {
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 12px;
+      padding: 4px 8px;
+      font-size: 10.5px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .graph-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .graph-tabs {
+      display: flex;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 15px;
+      padding: 2px;
+    }
+    .graph-tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-sec);
+      font-size: 10.5px;
+      font-weight: 700;
+      padding: 5px 9px;
+      border-radius: 12px;
+      cursor: pointer;
+    }
+    .graph-tab-btn.active { background: rgba(255, 255, 255, 0.25); color: #fff; }
+    .graph-wrapper {
+      position: relative;
+      width: 100%;
+      height: 180px;
+      background: rgba(0, 0, 0, 0.4);
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      overflow: hidden;
+    }
+    #graphCanvas { width: 100%; height: 100%; display: block; }
+
+    .live-chips {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 8px;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .chip {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      padding: 5px 9px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .flight-phases {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .phase-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 16px;
+      padding: 10px;
+      color: var(--text-sec);
+      font-size: 11.5px;
+      font-weight: 700;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      transition: all 0.25s ease;
+    }
+    .phase-btn.active {
+      background: linear-gradient(135deg, rgba(10, 132, 255, 0.55), rgba(191, 90, 242, 0.45));
+      border-color: rgba(255, 255, 255, 0.6);
+      color: #fff;
+    }
+
+    .vector-sliders { display: flex; flex-direction: column; gap: 10px; }
+    .slider-row { display: flex; flex-direction: column; gap: 4px; }
+    .slider-label-row { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; }
+    .slider-input-group { display: flex; align-items: center; gap: 10px; }
+    .pc-btn {
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #fff;
+      min-width: 34px;
+      min-height: 34px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 800;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    input[type=range] {
+      -webkit-appearance: none;
+      flex: 1;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 4px;
+      outline: none;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #fff;
+      cursor: pointer;
+      box-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+    }
+
+    .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .metric-item {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 14px;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .metric-name { font-size: 10.5px; color: var(--text-sec); font-weight: 600; }
+    .metric-val { font-size: 15px; font-weight: 800; }
+  </style>
+</head>
+<body>
+
+  <div class="fluid-orb orb-1"></div>
+  <div class="fluid-orb orb-2"></div>
+  <div class="fluid-orb orb-3"></div>
+
+  <div class="app-shell">
+
+    <header class="glass-card header">
+      <div class="brand">
+        <span style="font-size: 22px;">✈️</span>
+        <div>
+          <h1 id="lbl-title">AeroVector 3D Studio</h1>
+          <p style="font-size: 10.5px; color: var(--text-sec);" id="lbl-subtitle">Dynamic Flight & Ground Vector Kinematics</p>
+        </div>
+      </div>
+
+      <div class="pc-hotkeys">
+        <span>⌨️ Hotkeys:</span>
+        <span class="kbd">F / Esc</span> <span id="lbl-k-fs">Fullscreen</span>
+        <span class="kbd">+/-</span> <span id="lbl-k-zoom">Zoom</span>
+        <span class="kbd">M</span> <span id="lbl-k-shrink">Shrink HUD</span>
+        <span class="kbd">↑/↓</span> <span id="lbl-k-thrust">Thrust</span>
+        <span class="kbd">W/S</span> <span id="lbl-k-lift">Lift</span>
+      </div>
+
+      <div class="lang-switcher">
+        <button class="lang-btn active" data-lang="en" onclick="setLanguage('en')">EN</button>
+        <button class="lang-btn" data-lang="si" onclick="setLanguage('si')">සිං</button>
+        <button class="lang-btn" data-lang="ta" onclick="setLanguage('ta')">தமி</button>
+      </div>
+    </header>
+
+    <div class="workspace-grid">
+
+      <div class="column">
+
+        <div class="glass-card" style="padding: 10px;">
+          <div class="viewport-box" id="viewport-box">
+            <canvas id="three-canvas"></canvas>
+
+            <div class="viewport-top-bar">
+              <div class="overlay-badge" id="lbl-badge">🎮 3D Touch / Drag Orbit</div>
+              <div class="viewport-tools">
+                <button class="tool-btn" id="btn-settings-toggle" onclick="toggleSettingsMenu()">
+                  <span>⚙️</span> <span id="lbl-settings-btn">Settings</span>
+                </button>
+                <button class="tool-btn" id="btn-fullscreen-toggle" onclick="toggleFullscreenFlight()">
+                  <span>⛶</span> <span id="lbl-fs-btn">Full Screen</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="viewport-zoom-bar">
+              <button class="zoom-btn" onclick="adjustZoom(-4)" title="Zoom In (Close-up)">➕</button>
+              <button class="zoom-btn" onclick="adjustZoom(4)" title="Zoom Out (Panoramic)">➖</button>
+              <button class="zoom-btn" onclick="resetZoom()" title="Reset Camera Zoom" style="font-size: 13px;">↺</button>
+            </div>
+
+            <div class="settings-dropdown" id="settings-menu">
+              <span class="settings-title" id="lbl-cam-views">Camera Presets</span>
+              <div class="cam-btn-grid">
+                <button class="mini-btn" onclick="setCameraView('perspective')">Perspective</button>
+                <button class="mini-btn" onclick="setCameraView('side')">Side Profile</button>
+                <button class="mini-btn" onclick="setCameraView('chase')">Chase View</button>
+                <button class="mini-btn" onclick="setCameraView('top')">Top View</button>
+              </div>
+
+              <span class="settings-title" id="lbl-vec-filters">Vector Categories</span>
+              <label class="setting-item">
+                <span>Lift & Weight</span>
+                <input type="checkbox" id="chk-lw" checked onchange="toggleVectorClass('lw', this.checked)">
+              </label>
+              <label class="setting-item">
+                <span>Thrust & Drag</span>
+                <input type="checkbox" id="chk-td" checked onchange="toggleVectorClass('td', this.checked)">
+              </label>
+              <label class="setting-item">
+                <span>Ground Reactions</span>
+                <input type="checkbox" id="chk-ground" checked onchange="toggleVectorClass('ground', this.checked)">
+              </label>
+              <label class="setting-item">
+                <span>Net & Velocity</span>
+                <input type="checkbox" id="chk-dyn" checked onchange="toggleVectorClass('dyn', this.checked)">
+              </label>
+            </div>
+
+            <div class="fullscreen-classified-hud" id="fullscreen-hud">
+              <div class="hud-header" id="hud-drag-handle">
+                <div class="hud-drag-grip">
+                  <span class="grip-icon">⠿</span>
+                  <span id="lbl-fs-hud-title">Editable Vectors HUD</span>
+                </div>
+                <div class="hud-controls">
+                  <button class="mini-btn" id="btn-shrink-toggle" onclick="toggleHudShrink()" title="Shrink to controls only">─ Shrink</button>
+                  <button class="mini-btn" onclick="toggleFullscreenFlight()" style="background: rgba(255,69,58,0.25); border-color: rgba(255,69,58,0.5);">✕</button>
+                </div>
+              </div>
+
+              <div id="hud-vector-content">
+                <div class="v-group">
+                  <div class="v-group-title">
+                    <span id="lbl-grp-aero">Aerodynamic Forces</span>
+                    <span style="font-size: 9px; opacity: 0.7;">Direct Controls</span>
+                  </div>
+
+                  <div class="hud-edit-row">
+                    <div class="hud-edit-label">
+                      <div class="hud-edit-left"><span class="v-dot" style="background: var(--col-thrust);"></span> Thrust (T):</div>
+                      <b id="hud-val-thrust" style="color: var(--col-thrust);">0 kN</b>
+                    </div>
+                    <div class="hud-slider-wrap">
+                      <button class="hud-mini-btn" onclick="stepSlider('rng-thrust', -10)">-</button>
+                      <input type="range" class="hud-slider" id="hud-rng-thrust" min="0" max="250" value="0" oninput="syncFromHud('rng-thrust', this.value)" />
+                      <button class="hud-mini-btn" onclick="stepSlider('rng-thrust', 10)">+</button>
+                    </div>
+                  </div>
+
+                  <div class="hud-edit-row">
+                    <div class="hud-edit-label">
+                      <div class="hud-edit-left"><span class="v-dot" style="background: var(--col-lift);"></span> Lift (L):</div>
+                      <b id="hud-val-lift" style="color: var(--col-lift);">0 kN</b>
+                    </div>
+                    <div class="hud-slider-wrap">
+                      <button class="hud-mini-btn" onclick="stepSlider('rng-lift', -10)">-</button>
+                      <input type="range" class="hud-slider" id="hud-rng-lift" min="0" max="250" value="0" oninput="syncFromHud('rng-lift', this.value)" />
+                      <button class="hud-mini-btn" onclick="stepSlider('rng-lift', 10)">+</button>
+                    </div>
+                  </div>
+
+                  <div class="hud-edit-row">
+                    <div class="hud-edit-label">
+                      <div class="hud-edit-left"><span class="v-dot" style="background: var(--col-drag);"></span> Drag (D):</div>
+                      <b id="hud-val-drag" style="color: var(--col-drag);">0 kN</b>
+                    </div>
+                    <div class="hud-slider-wrap">
+                      <button class="hud-mini-btn" onclick="stepSlider('rng-drag', -10)">-</button>
+                      <input type="range" class="hud-slider" id="hud-rng-drag" min="0" max="250" value="0" oninput="syncFromHud('rng-drag', this.value)" />
+                      <button class="hud-mini-btn" onclick="stepSlider('rng-drag', 10)">+</button>
+                    </div>
+                  </div>
+
+                  <div class="hud-edit-row">
+                    <div class="hud-edit-label">
+                      <div class="hud-edit-left"><span class="v-dot" style="background: var(--col-weight);"></span> Weight (W):</div>
+                      <b id="hud-val-weight" style="color: var(--col-weight);">120 kN</b>
+                    </div>
+                    <div class="hud-slider-wrap">
+                      <button class="hud-mini-btn" onclick="stepSlider('rng-weight', -10)">-</button>
+                      <input type="range" class="hud-slider" id="hud-rng-weight" min="50" max="250" value="120" oninput="syncFromHud('rng-weight', this.value)" />
+                      <button class="hud-mini-btn" onclick="stepSlider('rng-weight', 10)">+</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="v-group">
+                  <div class="v-group-title">
+                    <span id="lbl-grp-ground">Ground Reactions</span>
+                    <span style="font-size: 9px; opacity: 0.7;">Runway Mechanics</span>
+                  </div>
+
+                  <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; font-weight: 600;">
+                    <div class="hud-edit-left"><span class="v-dot" style="background: var(--col-normal);"></span> Normal Force (N):</div>
+                    <b id="hud-val-normal" style="color: var(--col-normal);">120 kN</b>
+                  </div>
+
+                  <div class="hud-edit-row" style="margin-top: 3px;">
+                    <div class="hud-edit-label">
+                      <div class="hud-edit-left"><span class="v-dot" style="background: var(--col-friction);"></span> Brakes / Friction (f):</div>
+                      <b id="hud-val-friction" style="color: var(--col-friction);">0 kN</b>
+                    </div>
+                    <div class="hud-slider-wrap">
+                      <button class="hud-mini-btn" onclick="stepBrake(-10)">-</button>
+                      <input type="range" class="hud-slider" id="hud-rng-brake" min="0" max="100" value="30" oninput="updateBrakeLevel(this.value)" />
+                      <button class="hud-mini-btn" onclick="stepBrake(10)">+</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="v-group">
+                  <div class="v-group-title">
+                    <span id="lbl-grp-dyn">Resultants</span>
+                    <span style="font-size: 9px; opacity: 0.7;">Telemetry</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; font-weight: 600;">
+                    <div class="hud-edit-left"><span class="v-dot" style="background: var(--col-net);"></span> Net Force:</div>
+                    <b id="hud-val-net" style="color: var(--col-net);">0.0 kN</b>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; font-weight: 600;">
+                    <div class="hud-edit-left"><span class="v-dot" style="background: var(--col-vel);"></span> Airspeed:</div>
+                    <b id="hud-val-speed" style="color: var(--col-vel);">0 km/h</b>
+                  </div>
+                </div>
+
+              </div>
+
+              <div class="hud-phases-row">
+                <button class="hud-phase-btn active" id="hud-btn-rest" onclick="setPhase('rest')">🛑 Rest</button>
+                <button class="hud-phase-btn" id="hud-btn-flight" onclick="setPhase('flight')">🛫 Flight</button>
+                <button class="hud-phase-btn" id="hud-btn-landing" onclick="setPhase('landing')">🛬 Land</button>
+              </div>
+            </div>
+
+          </div>
+
+          <div class="vector-legend-bar">
+            <div class="v-chip"><span class="v-dot" style="background: var(--col-lift);"></span> Lift: <b id="leg-lift">0 kN</b></div>
+            <div class="v-chip"><span class="v-dot" style="background: var(--col-weight);"></span> Weight: <b id="leg-weight">120 kN</b></div>
+            <div class="v-chip"><span class="v-dot" style="background: var(--col-thrust);"></span> Thrust: <b id="leg-thrust">0 kN</b></div>
+            <div class="v-chip"><span class="v-dot" style="background: var(--col-drag);"></span> Drag: <b id="leg-drag">0 kN</b></div>
+            <div class="v-chip"><span class="v-dot" style="background: var(--col-normal);"></span> Normal: <b id="leg-normal">120 kN</b></div>
+            <div class="v-chip"><span class="v-dot" style="background: var(--col-friction);"></span> Friction: <b id="leg-friction">0 kN</b></div>
+          </div>
+        </div>
+
+        <div class="glass-card">
+          <div class="graph-header">
+            <div>
+              <span style="font-size: 13px; font-weight: 800;" id="lbl-kinematics">Kinematics Curves with Real-Time Values</span>
+              <p style="font-size: 10px; color: var(--text-sec);" id="lbl-graph-sub">Explicit Y-Axis & X-Axis Time Series</p>
+            </div>
+            <div class="graph-tabs">
+              <button class="graph-tab-btn active" id="tab-all" onclick="setGraphView('all')">All</button>
+              <button class="graph-tab-btn" id="tab-s" onclick="setGraphView('s')">s - t</button>
+              <button class="graph-tab-btn" id="tab-v" onclick="setGraphView('v')">v - t</button>
+              <button class="graph-tab-btn" id="tab-a" onclick="setGraphView('a')">a - t</button>
+            </div>
+          </div>
+
+          <div class="graph-wrapper">
+            <canvas id="graphCanvas"></canvas>
+          </div>
+
+          <div class="live-chips">
+            <div class="chip">Displacement: <b style="color: var(--col-vel);" id="live-s">0.0 m</b></div>
+            <div class="chip">Velocity: <b style="color: var(--col-normal);" id="live-v">0.0 m/s</b></div>
+            <div class="chip">Acceleration: <b style="color: var(--col-net);" id="live-a">0.00 m/s²</b></div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="column">
+
+        <div class="flight-phases">
+          <button class="phase-btn active" id="btn-rest" onclick="setPhase('rest')">
+            <span style="font-size: 18px;">🛑</span>
+            <span id="lbl-rest">At Rest (Ground)</span>
+          </button>
+          <button class="phase-btn" id="btn-flight" onclick="setPhase('flight')">
+            <span style="font-size: 18px;">🛫</span>
+            <span id="lbl-flight">In Flight</span>
+          </button>
+          <button class="phase-btn" id="btn-landing" onclick="setPhase('landing')">
+            <span style="font-size: 18px;">🛬</span>
+            <span id="lbl-landing">Touchdown Landing</span>
+          </button>
+        </div>
+
+        <div class="glass-card vector-sliders">
+          <h3 style="font-size: 13px; font-weight: 700;" id="lbl-vectors-ctrl">Aerodynamic & Engine Controls</h3>
+
+          <div class="slider-row">
+            <div class="slider-label-row">
+              <span id="lbl-thrust" style="color: var(--col-thrust);">Thrust (T)</span>
+              <span id="val-thrust" style="color: var(--col-thrust);">0 kN</span>
+            </div>
+            <div class="slider-input-group">
+              <button class="pc-btn" onclick="stepSlider('rng-thrust', -10)">-</button>
+              <input type="range" id="rng-thrust" min="0" max="250" value="0" oninput="updateVectors()" />
+              <button class="pc-btn" onclick="stepSlider('rng-thrust', 10)">+</button>
+            </div>
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-label-row">
+              <span id="lbl-lift" style="color: var(--col-lift);">Lift (L)</span>
+              <span id="val-lift" style="color: var(--col-lift);">0 kN</span>
+            </div>
+            <div class="slider-input-group">
+              <button class="pc-btn" onclick="stepSlider('rng-lift', -10)">-</button>
+              <input type="range" id="rng-lift" min="0" max="250" value="0" oninput="updateVectors()" />
+              <button class="pc-btn" onclick="stepSlider('rng-lift', 10)">+</button>
+            </div>
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-label-row">
+              <span id="lbl-drag" style="color: var(--col-drag);">Drag (D)</span>
+              <span id="val-drag" style="color: var(--col-drag);">0 kN</span>
+            </div>
+            <div class="slider-input-group">
+              <button class="pc-btn" onclick="stepSlider('rng-drag', -10)">-</button>
+              <input type="range" id="rng-drag" min="0" max="250" value="0" oninput="updateVectors()" />
+              <button class="pc-btn" onclick="stepSlider('rng-drag', 10)">+</button>
+            </div>
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-label-row">
+              <span id="lbl-weight" style="color: var(--col-weight);">Weight (W)</span>
+              <span id="val-weight" style="color: var(--col-weight);">120 kN</span>
+            </div>
+            <div class="slider-input-group">
+              <button class="pc-btn" onclick="stepSlider('rng-weight', -10)">-</button>
+              <input type="range" id="rng-weight" min="50" max="250" value="120" oninput="updateVectors()" />
+              <button class="pc-btn" onclick="stepSlider('rng-weight', 10)">+</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="glass-card metrics-grid">
+          <div class="metric-item">
+            <span class="metric-name" id="lbl-net-force">Resultant Net Force</span>
+            <span class="metric-val" id="disp-net-force" style="color: var(--col-net);">0.0 kN</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-name" id="lbl-climb-angle">Flight Vector Angle</span>
+            <span class="metric-val" id="disp-angle">0.0°</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-name" id="lbl-speed">Airspeed Velocity</span>
+            <span class="metric-val" id="disp-speed" style="color: var(--col-normal);">0 km/h</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-name" id="lbl-altitude">Altitude (AGL)</span>
+            <span class="metric-val" id="disp-altitude" style="color: var(--col-vel);">0.0 m</span>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <script>
+    const i18n = {
+      en: {
+        title: "AeroVector 3D Studio",
+        subtitle: "Dynamic Flight & Ground Vector Kinematics",
+        badge: "🎮 3D Touch / Drag Orbit",
+        fsBtn: "Full Screen",
+        fsExitBtn: "Exit Full Screen",
+        settingsBtn: "Settings",
+        camViews: "Camera Presets",
+        vecFilters: "Vector Categories",
+        fsHudTitle: "Editable Vectors HUD",
+        grpAero: "Aerodynamic Forces",
+        grpGround: "Ground Reactions",
+        grpDyn: "Resultants",
+        shrinkBtn: "─ Shrink",
+        expandBtn: "▲ Vectors",
+        rest: "At Rest (Ground)",
+        flight: "In Flight",
+        landing: "Touchdown Landing",
+        kinematics: "Kinematics Curves with Real-Time Values",
+        graphSub: "Explicit Y-Axis & X-Axis Time Series",
+        vectorCtrl: "Aerodynamic & Engine Controls",
+        thrust: "Thrust (T)",
+        lift: "Lift (L)",
+        drag: "Drag (D)",
+        weight: "Weight (W)",
+        netForce: "Resultant Net Force",
+        angle: "Flight Vector Angle (θ)",
+        speed: "Airspeed Velocity",
+        altitude: "Altitude (AGL)",
+        kFs: "Fullscreen",
+        kZoom: "Zoom",
+        kShrink: "Shrink HUD",
+        kThrust: "Thrust",
+        kLift: "Lift"
+      },
+      si: {
+        title: "ඒරෝවෙක්ටර් 3D මැදිරිය",
+        subtitle: "ගුවන් හා භූමි දෛශික චාලක විද්‍යාව",
+        badge: "🎮 ත්‍රිමාණ ස්පර්ශ / භ්‍රමණය",
+        fsBtn: "පූර්ණ තිරය",
+        fsExitBtn: "ඉවත් වන්න",
+        settingsBtn: "සැකසුම්",
+        camViews: "කැමරා කෝණයන්",
+        vecFilters: "දෛශික වර්ගීකරණය",
+        fsHudTitle: "සංස්කරණය කළ හැකි දෛශික",
+        grpAero: "වායුගතික බල",
+        grpGround: "භූමි ප්‍රතික්‍රියා බල",
+        grpDyn: "සම්ප්‍රයුක්ත",
+        shrinkBtn: "─ හකුළන්න",
+        expandBtn: "▲ දෛශික",
+        rest: "ධාවන පථයේ (නැවතුම්)",
+        flight: "පියාසර මොහොත",
+        landing: "ගොඩබෑමේ මොහොත",
+        kinematics: "නියම අගයන් සහිත චාලක ප්‍රස්තාර",
+        graphSub: "Y හා X අක්ෂීය සංඛ්‍යාත්මක කාල සටහන",
+        vectorCtrl: "වායුගතික හා එන්ජින් පාලක",
+        thrust: "තෙරපුම (T)",
+        lift: "එසවුම (L)",
+        drag: "ඇදුම (D)",
+        weight: "බර (W)",
+        netForce: "සම්ප්‍රයුක්ත බලය",
+        angle: "දෛශික කෝණය (θ)",
+        speed: "ප්‍රවේගය",
+        altitude: "උන්නතාංශය",
+        kFs: "පූර්ණ තිරය",
+        kZoom: "විශාලනය",
+        kShrink: "හකුළන්න",
+        kThrust: "තෙරපුම",
+        kLift: "එසවුම"
+      },
+      ta: {
+        title: "ஏரோவெக்டர் 3D ஸ்டுடியோ",
+        subtitle: "விமான மற்றும் தரை திசையன் இயக்கவியல்",
+        badge: "🎮 3D தொடுதல் / சுழற்சி",
+        fsBtn: "முழுத்திரை",
+        fsExitBtn: "வெளியேறு",
+        settingsBtn: "அமைப்புகள்",
+        camViews: "கேமரா கோணங்கள்",
+        vecFilters: "திசையன் வகைகள்",
+        fsHudTitle: "திருத்தக்கூடிய திசையன்கள்",
+        grpAero: "காற்றியக்க விசைகள்",
+        grpGround: "தரை எதிர்வினை விசைகள்",
+        grpDyn: "தொகுபயன்",
+        shrinkBtn: "─ சுருக்குக",
+        expandBtn: "▲ திசையன்கள்",
+        rest: "தரை நிலை (ஓய்வு)",
+        flight: "பறக்கும் நிலை",
+        landing: "தரையிறங்குதல்",
+        kinematics: "துல்லிய எண்களுடன் இயக்க வரைபடங்கள்",
+        graphSub: "Y மற்றும் X அச்சு நேரத் தொடர்",
+        vectorCtrl: "காற்றியக்க மற்றும் எஞ்சின் கட்டுப்பாடுகள்",
+        thrust: "உந்துவிசை (T)",
+        lift: "தூக்குவிசை (L)",
+        drag: "இழுவை விசை (D)",
+        weight: "ஈர்ப்பு எடை (W)",
+        netForce: "தொகுபயன் விசை",
+        angle: "திசையன் கோணம் (θ)",
+        speed: "வேகம்",
+        altitude: "உயரம்",
+        kFs: "முழுத்திரை",
+        kZoom: "பெரிதாக்கு",
+        kShrink: "சுருக்குக",
+        kThrust: "உந்துவிசை",
+        kLift: "தூக்குவிசை"
+      }
+    };
+
+    let currentLang = 'en';
+    let currentPhase = 'rest';
+    let graphMode = 'all';
+    let isFullscreen = false;
+    let isHudShrunk = false;
+    let groundBrakeFactor = 0.3;
+
+    const rngThrust = document.getElementById('rng-thrust');
+    const rngLift = document.getElementById('rng-lift');
+    const rngDrag = document.getElementById('rng-drag');
+    const rngWeight = document.getElementById('rng-weight');
+
+    const valThrust = document.getElementById('val-thrust');
+    const valLift = document.getElementById('val-lift');
+    const valDrag = document.getElementById('val-drag');
+    const valWeight = document.getElementById('val-weight');
+
+    const hudRngThrust = document.getElementById('hud-rng-thrust');
+    const hudRngLift = document.getElementById('hud-rng-lift');
+    const hudRngDrag = document.getElementById('hud-rng-drag');
+    const hudRngWeight = document.getElementById('hud-rng-weight');
+    const hudRngBrake = document.getElementById('hud-rng-brake');
+
+    const planeMass = 12240;
+    let state = {
+      s: 0,
+      v: 0,
+      a: 0,
+      altitude: 0,
+      simTime: 0
+    };
+
+    const historyMax = 75;
+    const historyData = [];
+    for (let i = 0; i < historyMax; i++) {
+      historyData.push({ s: 0, v: 0, a: 0 });
+    }
+
+    const viewportBox = document.getElementById('viewport-box');
+    const threeCanvas = document.getElementById('three-canvas');
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x101730, 0.015);
+
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
+    let cameraDistance = 22;
+    const defaultCameraDist = 22;
+    let cameraTheta = 0.8;
+    let cameraPhi = 0.35;
+
+    function updateCamera() {
+      camera.position.x = cameraDistance * Math.cos(cameraPhi) * Math.sin(cameraTheta);
+      camera.position.y = cameraDistance * Math.sin(cameraPhi) + 1.2;
+      camera.position.z = cameraDistance * Math.cos(cameraPhi) * Math.cos(cameraTheta);
+      camera.lookAt(0, 1.0, 0);
+    }
+
+    function adjustZoom(delta) {
+      cameraDistance = Math.max(8, Math.min(65, cameraDistance + delta));
+      updateCamera();
+    }
+
+    function resetZoom() {
+      cameraDistance = defaultCameraDist;
+      updateCamera();
+    }
+
+    const renderer = new THREE.WebGLRenderer({ canvas: threeCanvas, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+    const activePointers = new Map();
+    let isPointerDragging = false;
+    let prevPointerX = 0, prevPointerY = 0;
+    let initialPinchDist = 0;
+    let initialCameraDist = 22;
+
+    viewportBox.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('#fullscreen-hud') || e.target.closest('.viewport-top-bar') || e.target.closest('#settings-menu') || e.target.closest('.viewport-zoom-bar')) return;
+      
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      viewportBox.setPointerCapture(e.pointerId);
+
+      if (activePointers.size === 1) {
+        isPointerDragging = true;
+        prevPointerX = e.clientX;
+        prevPointerY = e.clientY;
+      } else if (activePointers.size === 2) {
+        isPointerDragging = false;
+        const pts = Array.from(activePointers.values());
+        initialPinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        initialCameraDist = cameraDistance;
+      }
+    });
+
+    viewportBox.addEventListener('pointermove', (e) => {
+      if (!activePointers.has(e.pointerId)) return;
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (activePointers.size === 1 && isPointerDragging) {
+        const dx = e.clientX - prevPointerX;
+        const dy = e.clientY - prevPointerY;
+        prevPointerX = e.clientX;
+        prevPointerY = e.clientY;
+
+        cameraTheta -= dx * 0.008;
+        cameraPhi = Math.max(-0.1, Math.min(1.2, cameraPhi + dy * 0.008));
+        updateCamera();
+      } else if (activePointers.size === 2) {
+        const pts = Array.from(activePointers.values());
+        const currentDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        if (initialPinchDist > 0) {
+          const factor = initialPinchDist / Math.max(currentDist, 1);
+          cameraDistance = Math.max(8, Math.min(65, initialCameraDist * factor));
+          updateCamera();
+        }
+      }
+    });
+
+    const removePointer = (e) => {
+      activePointers.delete(e.pointerId);
+      try { viewportBox.releasePointerCapture(e.pointerId); } catch(_) {}
+      
+      if (activePointers.size === 1) {
+        const remaining = Array.from(activePointers.values())[0];
+        prevPointerX = remaining.x;
+        prevPointerY = remaining.y;
+        isPointerDragging = true;
+      } else if (activePointers.size === 0) {
+        isPointerDragging = false;
+      }
+    };
+
+    viewportBox.addEventListener('pointerup', removePointer);
+    viewportBox.addEventListener('pointercancel', removePointer);
+
+    viewportBox.addEventListener('wheel', (e) => {
+      if (e.target.closest('#fullscreen-hud')) return;
+      e.preventDefault();
+      adjustZoom(e.deltaY * 0.025);
+    }, { passive: false });
+
+    window.addEventListener('click', (e) => {
+      const menu = document.getElementById('settings-menu');
+      const btn = document.getElementById('btn-settings-toggle');
+      if (menu.classList.contains('active') && !menu.contains(e.target) && !btn.contains(e.target)) {
+        menu.classList.remove('active');
+      }
+    });
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+    const sun = new THREE.DirectionalLight(0xfff3d6, 1.2);
+    sun.position.set(15, 30, 20);
+    scene.add(sun);
+
+    const airplane = new THREE.Group();
+    scene.add(airplane);
+
+    const matWhite = new THREE.MeshToonMaterial({ color: 0xffffff });
+    const matBlue = new THREE.MeshToonMaterial({ color: 0x0A84FF });
+    const matRed = new THREE.MeshToonMaterial({ color: 0xff3b30 });
+    const matGlass = new THREE.MeshToonMaterial({ color: 0x64d2ff, opacity: 0.85, transparent: true });
+
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.15, 5.8, 16), matWhite);
+    body.rotation.z = Math.PI / 2;
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(1.15, 1.8, 16), matRed);
+    nose.rotation.z = -Math.PI / 2;
+    nose.position.x = 3.8;
+    const cockpit = new THREE.Mesh(new THREE.SphereGeometry(0.9, 16, 16), matGlass);
+    cockpit.scale.set(1.5, 0.9, 0.85);
+    cockpit.position.set(1.0, 1.0, 0);
+
+    const wing = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.16, 10.0), matBlue);
+    wing.position.set(0.2, 0.1, 0);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.7, 0.18), matRed);
+    tail.position.set(-2.4, 1.2, 0);
+    tail.rotation.z = -0.3;
+    const hTail = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.12, 3.8), matBlue);
+    hTail.position.set(-2.3, 0.35, 0);
+
+    const propGroup = new THREE.Group();
+    propGroup.position.set(4.75, 0, 0);
+    const blade1 = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.7, 0.3), new THREE.MeshToonMaterial({ color: 0xffcc00 }));
+    const blade2 = blade1.clone();
+    blade2.rotation.x = Math.PI / 2;
+    propGroup.add(blade1, blade2);
+
+    function createWheelGear(x, y, z) {
+      const g = new THREE.Group();
+      const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.1), new THREE.MeshToonMaterial({ color: 0x333333 }));
+      strut.position.y = -0.55;
+      const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.22, 12), new THREE.MeshToonMaterial({ color: 0x111111 }));
+      wheel.rotation.x = Math.PI / 2;
+      wheel.position.y = -1.1;
+      g.add(strut, wheel);
+      g.position.set(x, y, z);
+      return g;
+    }
+    airplane.add(body, nose, cockpit, wing, tail, hTail, propGroup, createWheelGear(2.2, -0.6, 0), createWheelGear(-0.3, -0.6, 1.8), createWheelGear(-0.3, -0.6, -1.8));
+
+    function createVectorArrow(colorHex) {
+      const group = new THREE.Group();
+      const mat = new THREE.MeshBasicMaterial({ color: colorHex });
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1, 8), mat);
+      shaft.position.y = 0.5;
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.55, 12), mat);
+      cone.position.y = 1.0;
+      group.add(shaft, cone);
+      return group;
+    }
+
+    const arrowLift = createVectorArrow(0x0A84FF);
+    const arrowWeight = createVectorArrow(0xFF453A);
+    const arrowThrust = createVectorArrow(0x30D158);
+    const arrowDrag = createVectorArrow(0xFF9F0A);
+    const arrowNormal = createVectorArrow(0x32D74B);
+    const arrowFriction = createVectorArrow(0xFFD60A);
+    const arrowNet = createVectorArrow(0xBF5AF2);
+    const arrowVel = createVectorArrow(0x64D2FF);
+
+    arrowWeight.rotation.z = Math.PI;
+    arrowThrust.rotation.z = -Math.PI / 2;
+    arrowDrag.rotation.z = Math.PI / 2;
+    arrowFriction.rotation.z = Math.PI / 2;
+    arrowVel.rotation.z = -Math.PI / 2;
+    arrowNormal.position.set(0, -1.6, 0);
+    arrowFriction.position.set(0, -1.6, 0);
+
+    airplane.add(arrowLift, arrowWeight, arrowThrust, arrowDrag, arrowNormal, arrowFriction, arrowNet, arrowVel);
+
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(350, 40), new THREE.MeshToonMaterial({ color: 0x161b2e }));
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = -3.5;
+    scene.add(ground);
+
+    const runwayLines = [];
+    for (let i = -10; i < 11; i++) {
+      const lineMesh = new THREE.Mesh(new THREE.PlaneGeometry(5, 0.45), new THREE.MeshBasicMaterial({ color: 0xffffff, opacity: 0.65, transparent: true }));
+      lineMesh.rotation.x = -Math.PI / 2;
+      lineMesh.position.set(i * 12, -3.48, 0);
+      scene.add(lineMesh);
+      runwayLines.push(lineMesh);
+    }
+
+    const clouds = [];
+    const cloudGeo = new THREE.DodecahedronGeometry(1.5, 1);
+    const cloudMat = new THREE.MeshToonMaterial({ color: 0xf5f8ff, transparent: true, opacity: 0.75 });
+    for (let i = 0; i < 15; i++) {
+      const puffCluster = new THREE.Group();
+      for (let p = 0; p < 4; p++) {
+        const puff = new THREE.Mesh(cloudGeo, cloudMat);
+        puff.position.set(p * 1.1, (Math.random() - 0.5) * 0.8, (Math.random() - 0.5) * 0.8);
+        puff.scale.setScalar(0.7 + Math.random() * 0.7);
+        puffCluster.add(puff);
+      }
+      puffCluster.position.set((Math.random() - 0.5) * 140, 3 + Math.random() * 14, -15 + (Math.random() - 0.5) * 35);
+      scene.add(puffCluster);
+      clouds.push(puffCluster);
+    }
+
+    function syncFromHud(mainSliderId, val) {
+      document.getElementById(mainSliderId).value = val;
+      updateVectors();
+    }
+
+    function updateBrakeLevel(val) {
+      groundBrakeFactor = parseFloat(val) / 100;
+      updateVectors();
+    }
+
+    function stepBrake(delta) {
+      const curr = parseFloat(hudRngBrake.value);
+      const next = Math.max(0, Math.min(100, curr + delta));
+      hudRngBrake.value = next;
+      updateBrakeLevel(next);
+    }
+
+    const hud = document.getElementById('fullscreen-hud');
+    const dragHandle = document.getElementById('hud-drag-handle');
+
+    function toggleFullscreenFlight() {
+      isFullscreen = !isFullscreen;
+      const fsBtnText = document.getElementById('lbl-fs-btn');
+      const t = i18n[currentLang];
+
+      if (isFullscreen) {
+        viewportBox.classList.add('is-fullscreen');
+        fsBtnText.innerText = t.fsExitBtn;
+        document.getElementById('settings-menu').classList.remove('active');
+
+        hud.style.left = 'auto';
+        hud.style.bottom = 'auto';
+        hud.style.top = '18px';
+        hud.style.right = '18px';
+
+        try {
+          if (viewportBox.requestFullscreen) viewportBox.requestFullscreen().catch(() => {});
+          else if (viewportBox.webkitRequestFullscreen) viewportBox.webkitRequestFullscreen();
+        } catch(_) {}
+      } else {
+        viewportBox.classList.remove('is-fullscreen');
+        fsBtnText.innerText = t.fsBtn;
+
+        try {
+          if (document.exitFullscreen && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+          else if (document.webkitExitFullscreen && document.webkitFullscreenElement) document.webkitExitFullscreen();
+        } catch(_) {}
+      }
+      handleResize();
+    }
+
+    document.addEventListener('fullscreenchange', () => {
+      if (!document.fullscreenElement && isFullscreen) toggleFullscreenFlight();
+    });
+    document.addEventListener('webkitfullscreenchange', () => {
+      if (!document.webkitFullscreenElement && isFullscreen) toggleFullscreenFlight();
+    });
+
+    function toggleHudShrink() {
+      isHudShrunk = !isHudShrunk;
+      hud.classList.toggle('is-shrunk', isHudShrunk);
+      const btn = document.getElementById('btn-shrink-toggle');
+      const t = i18n[currentLang];
+      btn.innerText = isHudShrunk ? t.expandBtn : t.shrinkBtn;
+    }
+
+    let isHudDragging = false;
+    let hudStartX = 0, hudStartY = 0;
+    let hudInitialLeft = 0, hudInitialTop = 0;
+
+    dragHandle.addEventListener('pointerdown', (e) => {
+      if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+      isHudDragging = true;
+      hudStartX = e.clientX;
+      hudStartY = e.clientY;
+
+      const rect = hud.getBoundingClientRect();
+      hudInitialLeft = rect.left;
+      hudInitialTop = rect.top;
+
+      hud.style.right = 'auto';
+      hud.style.bottom = 'auto';
+      hud.style.left = `${hudInitialLeft}px`;
+      hud.style.top = `${hudInitialTop}px`;
+
+      dragHandle.setPointerCapture(e.pointerId);
+      e.stopPropagation();
+    });
+
+    window.addEventListener('pointermove', (e) => {
+      if (!isHudDragging) return;
+      const dx = e.clientX - hudStartX;
+      const dy = e.clientY - hudStartY;
+
+      let newLeft = hudInitialLeft + dx;
+      let newTop = hudInitialTop + dy;
+
+      const pad = 8;
+      const maxLeft = window.innerWidth - hud.offsetWidth - pad;
+      const maxTop = window.innerHeight - hud.offsetHeight - pad;
+      newLeft = Math.max(pad, Math.min(maxLeft, newLeft));
+      newTop = Math.max(pad, Math.min(maxTop, newTop));
+
+      hud.style.left = `${newLeft}px`;
+      hud.style.top = `${newTop}px`;
+    });
+
+    const stopHudDrag = (e) => {
+      if (isHudDragging) {
+        isHudDragging = false;
+        try { dragHandle.releasePointerCapture(e.pointerId); } catch(_) {}
+      }
+    };
+    window.addEventListener('pointerup', stopHudDrag);
+    window.addEventListener('pointercancel', stopHudDrag);
+
+    function toggleSettingsMenu() {
+      document.getElementById('settings-menu').classList.toggle('active');
+    }
+
+    function setCameraView(preset) {
+      if (preset === 'perspective') {
+        cameraTheta = 0.8; cameraPhi = 0.35; cameraDistance = defaultCameraDist;
+      } else if (preset === 'side') {
+        cameraTheta = Math.PI / 2; cameraPhi = 0.05; cameraDistance = defaultCameraDist;
+      } else if (preset === 'chase') {
+        cameraTheta = 0.05; cameraPhi = 0.2; cameraDistance = 18;
+      } else if (preset === 'top') {
+        cameraTheta = 0.0; cameraPhi = 1.15; cameraDistance = 26;
+      }
+      updateCamera();
+      document.getElementById('settings-menu').classList.remove('active');
+    }
+
+    const vectorFilterState = { lw: true, td: true, ground: true, dyn: true };
+    function toggleVectorClass(cls, enabled) {
+      vectorFilterState[cls] = enabled;
+      updateVectors();
+    }
+
+    const graphCanvas = document.getElementById('graphCanvas');
+    const gCtx = graphCanvas.getContext('2d');
+
+    function resizeGraphs() {
+      const w = graphCanvas.parentElement.clientWidth;
+      const h = graphCanvas.parentElement.clientHeight;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      graphCanvas.width = w * dpr;
+      graphCanvas.height = h * dpr;
+    }
+
+    function drawKinematicsGraph() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const w = graphCanvas.width;
+      const h = graphCanvas.height;
+      gCtx.clearRect(0, 0, w, h);
+
+      const padLeft = 52 * dpr;
+      const padRight = 14 * dpr;
+      const padTop = 14 * dpr;
+      const padBottom = 22 * dpr;
+
+      const plotW = w - padLeft - padRight;
+      const plotH = h - padTop - padBottom;
+
+      const maxS = Math.max(300, ...historyData.map(d => d.s));
+      const maxV = Math.max(120, ...historyData.map(d => d.v));
+      const maxA = Math.max(12, ...historyData.map(d => Math.abs(d.a)));
+
+      const rows = 4;
+      gCtx.font = `600 ${10 * dpr}px -apple-system, sans-serif`;
+      gCtx.textAlign = "right";
+      gCtx.textBaseline = "middle";
+
+      for (let i = 0; i <= rows; i++) {
+        const y = padTop + (plotH / rows) * i;
+        const norm = 1 - (i / rows);
+
+        gCtx.strokeStyle = (i === rows) ? "rgba(255, 255, 255, 0.35)" : "rgba(255, 255, 255, 0.08)";
+        gCtx.lineWidth = 1 * dpr;
+        gCtx.beginPath();
+        gCtx.moveTo(padLeft, y);
+        gCtx.lineTo(w - padRight, y);
+        gCtx.stroke();
+
+        let numText = "";
+        let numColor = "rgba(255, 255, 255, 0.7)";
+
+        if (graphMode === 's') {
+          numText = `${(norm * maxS).toFixed(0)} m`;
+          numColor = "#64D2FF";
+        } else if (graphMode === 'v') {
+          numText = `${(norm * maxV).toFixed(0)} m/s`;
+          numColor = "#32D74B";
+        } else if (graphMode === 'a') {
+          const aVal = (norm * 2 - 1) * maxA;
+          numText = `${aVal >= 0 ? '+' : ''}${aVal.toFixed(1)}`;
+          numColor = "#BF5AF2";
+        } else {
+          numText = `${Math.round(norm * 100)}%`;
+        }
+
+        gCtx.fillStyle = numColor;
+        gCtx.fillText(numText, padLeft - 6 * dpr, y);
+      }
+
+      gCtx.textAlign = "center";
+      gCtx.textBaseline = "top";
+      gCtx.fillStyle = "rgba(255, 255, 255, 0.5)";
+      const cols = 4;
+      for (let j = 0; j <= cols; j++) {
+        const x = padLeft + (plotW / cols) * j;
+        const timeOffset = Math.round((1 - (j / cols)) * 8);
+        gCtx.fillText(timeOffset === 0 ? "Now" : `-${timeOffset}s`, x, h - padBottom + 4 * dpr);
+      }
+
+      function plotCurve(getter, minB, maxB, colorHex) {
+        gCtx.strokeStyle = colorHex;
+        gCtx.lineWidth = 2.2 * dpr;
+        gCtx.beginPath();
+        const stepX = plotW / (historyMax - 1);
+        for (let i = 0; i < historyMax; i++) {
+          const val = getter(historyData[i]);
+          const norm = Math.max(0, Math.min(1, (val - minB) / (maxB - minB)));
+          const x = padLeft + i * stepX;
+          const y = padTop + plotH * (1 - norm);
+          if (i === 0) gCtx.moveTo(x, y);
+          else gCtx.lineTo(x, y);
+        }
+        gCtx.stroke();
+      }
+
+      if (graphMode === 'all' || graphMode === 's') plotCurve(d => d.s, 0, maxS, "#64D2FF");
+      if (graphMode === 'all' || graphMode === 'v') plotCurve(d => d.v, 0, maxV, "#32D74B");
+      if (graphMode === 'all' || graphMode === 'a') {
+        if (graphMode === 'a') plotCurve(d => d.a, -maxA, maxA, "#BF5AF2");
+        else plotCurve(d => Math.max(0, d.a), 0, maxA, "#BF5AF2");
+      }
+    }
+
+    function setGraphView(mode) {
+      graphMode = mode;
+      document.querySelectorAll('.graph-tab-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById(`tab-${mode}`).classList.add('active');
+    }
+
+    function stepSlider(id, delta) {
+      const slider = document.getElementById(id);
+      slider.value = Math.max(parseFloat(slider.min), Math.min(parseFloat(slider.max), parseFloat(slider.value) + delta));
+      updateVectors();
+    }
+
+    function updateVectors() {
+      const T = parseFloat(rngThrust.value);
+      const L = parseFloat(rngLift.value);
+      const D = parseFloat(rngDrag.value);
+      const W = parseFloat(rngWeight.value);
+
+      valThrust.innerText = `${T} kN`;
+      valLift.innerText = `${L} kN`;
+      valDrag.innerText = `${D} kN`;
+      valWeight.innerText = `${W} kN`;
+
+      hudRngThrust.value = T;
+      hudRngLift.value = L;
+      hudRngDrag.value = D;
+      hudRngWeight.value = W;
+
+      document.getElementById('hud-val-thrust').innerText = `${T} kN`;
+      document.getElementById('hud-val-lift').innerText = `${L} kN`;
+      document.getElementById('hud-val-drag').innerText = `${D} kN`;
+      document.getElementById('hud-val-weight').innerText = `${W} kN`;
+
+      const isOnGround = state.altitude <= 0.05;
+
+      let N = 0;
+      let friction = 0;
+      if (isOnGround) {
+        N = Math.max(0, W - L);
+        friction = (state.v > 0.1 || T > 0) ? Math.min(T * 0.15 + 8, N * groundBrakeFactor) : 0;
+      }
+
+      document.getElementById('leg-lift').innerText = `${L} kN`;
+      document.getElementById('leg-weight').innerText = `${W} kN`;
+      document.getElementById('leg-thrust').innerText = `${T} kN`;
+      document.getElementById('leg-drag').innerText = `${D} kN`;
+      document.getElementById('leg-normal').innerText = `${N.toFixed(0)} kN`;
+      document.getElementById('leg-friction').innerText = `${friction.toFixed(0)} kN`;
+
+      document.getElementById('hud-val-normal').innerText = `${N.toFixed(0)} kN`;
+      document.getElementById('hud-val-friction').innerText = `${friction.toFixed(0)} kN`;
+
+      const sf = 0.022;
+
+      arrowLift.visible = vectorFilterState.lw;
+      arrowLift.scale.set(1, Math.max(0.001, L * sf), 1);
+      arrowWeight.visible = vectorFilterState.lw;
+      arrowWeight.scale.set(1, Math.max(0.001, W * sf), 1);
+
+      arrowThrust.visible = vectorFilterState.td;
+      arrowThrust.scale.set(1, Math.max(0.001, T * sf), 1);
+      arrowDrag.visible = vectorFilterState.td;
+      arrowDrag.scale.set(1, Math.max(0.001, D * sf), 1);
+
+      arrowNormal.visible = vectorFilterState.ground && isOnGround && N > 0.5;
+      arrowNormal.scale.set(1, Math.max(0.001, N * sf), 1);
+      arrowFriction.visible = vectorFilterState.ground && isOnGround && friction > 0.5;
+      arrowFriction.scale.set(1, Math.max(0.001, friction * sf * 2), 1);
+
+      const Fx = (T - D - friction) * 1000;
+      const Fy = ((L + N) - W) * 1000;
+      const Fnet = Math.sqrt(Fx * Fx + Fy * Fy) / 1000;
+
+      const netAngle = Math.atan2(Fy, Fx);
+      arrowNet.visible = vectorFilterState.dyn;
+      arrowNet.rotation.z = -(netAngle - Math.PI / 2);
+      arrowNet.scale.set(1, Math.max(0.001, Fnet * sf), 1);
+
+      arrowVel.visible = vectorFilterState.dyn;
+      arrowVel.scale.set(1, Math.max(0.001, state.v * 0.04), 1);
+
+      const angleDeg = (Math.atan2((L - W) * 1000, (T - D) * 1000) * (180 / Math.PI)).toFixed(1);
+
+      document.getElementById('disp-net-force').innerText = `${Fnet.toFixed(1)} kN`;
+      document.getElementById('hud-val-net').innerText = `${Fnet.toFixed(1)} kN`;
+      document.getElementById('disp-angle').innerText = `${angleDeg}°`;
+    }
+
+    function setPhase(phase) {
+      currentPhase = phase;
+      document.querySelectorAll('.phase-btn').forEach(b => b.classList.remove('active'));
+      const activeBtn = document.getElementById(`btn-${phase}`);
+      if (activeBtn) activeBtn.classList.add('active');
+
+      document.querySelectorAll('.hud-phase-btn').forEach(b => b.classList.remove('active'));
+      const activeHudBtn = document.getElementById(`hud-btn-${phase}`);
+      if (activeHudBtn) activeHudBtn.classList.add('active');
+
+      if (phase === 'rest') {
+        rngThrust.value = 0;
+        rngLift.value = 0;
+        rngDrag.value = 0;
+        rngWeight.value = 120;
+        hudRngBrake.value = 60;
+        groundBrakeFactor = 0.6;
+        state.v = 0;
+        state.altitude = 0;
+      } else if (phase === 'flight') {
+        rngThrust.value = 160;
+        rngDrag.value = 120;
+        rngLift.value = 145;
+        rngWeight.value = 120;
+        hudRngBrake.value = 10;
+        groundBrakeFactor = 0.1;
+      } else if (phase === 'landing') {
+        rngThrust.value = 25;
+        rngDrag.value = 100;
+        rngLift.value = 90;
+        rngWeight.value = 120;
+        hudRngBrake.value = 45;
+        groundBrakeFactor = 0.45;
+      }
+      updateVectors();
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT') return;
+
+      if (e.key === 'f' || e.key === 'F') { toggleFullscreenFlight(); }
+      else if (e.key === 'm' || e.key === 'M') { if (isFullscreen) toggleHudShrink(); }
+      else if (e.key === '+' || e.key === '=') { adjustZoom(-3); }
+      else if (e.key === '-' || e.key === '_') { adjustZoom(3); }
+      else if (e.key === '0') { resetZoom(); }
+      else if (e.key === 'Escape') {
+        if (isFullscreen) toggleFullscreenFlight();
+        document.getElementById('settings-menu').classList.remove('active');
+      }
+      else if (e.key === 'ArrowUp') { stepSlider('rng-thrust', 10); e.preventDefault(); }
+      else if (e.key === 'ArrowDown') { stepSlider('rng-thrust', -10); e.preventDefault(); }
+      else if (e.key === 'w' || e.key === 'W') { stepSlider('rng-lift', 10); }
+      else if (e.key === 's' || e.key === 'S') { stepSlider('rng-lift', -10); }
+      else if (e.key === '1') { setPhase('rest'); }
+      else if (e.key === '2') { setPhase('flight'); }
+      else if (e.key === '3') { setPhase('landing'); }
+      else if (e.code === 'Space') { setPhase('rest'); e.preventDefault(); }
+    });
+
+    function setLanguage(lang) {
+      currentLang = lang;
+      document.querySelectorAll('.lang-btn').forEach(b => {
+        if (b.dataset.lang === lang) b.classList.add('active');
+        else b.classList.remove('active');
+      });
+
+      const t = i18n[lang];
+      document.getElementById('lbl-title').innerText = t.title;
+      document.getElementById('lbl-subtitle').innerText = t.subtitle;
+      document.getElementById('lbl-badge').innerText = t.badge;
+      document.getElementById('lbl-fs-btn').innerText = isFullscreen ? t.fsExitBtn : t.fsBtn;
+      document.getElementById('lbl-settings-btn').innerText = t.settingsBtn;
+      document.getElementById('lbl-cam-views').innerText = t.camViews;
+      document.getElementById('lbl-vec-filters').innerText = t.vecFilters;
+      document.getElementById('lbl-fs-hud-title').innerText = t.fsHudTitle;
+      document.getElementById('lbl-grp-aero').innerText = t.grpAero;
+      document.getElementById('lbl-grp-ground').innerText = t.grpGround;
+      document.getElementById('lbl-grp-dyn').innerText = t.grpDyn;
+      document.getElementById('btn-shrink-toggle').innerText = isHudShrunk ? t.expandBtn : t.shrinkBtn;
+      document.getElementById('lbl-rest').innerText = t.rest;
+      document.getElementById('lbl-flight').innerText = t.flight;
+      document.getElementById('lbl-landing').innerText = t.landing;
+      document.getElementById('lbl-kinematics').innerText = t.kinematics;
+      document.getElementById('lbl-graph-sub').innerText = t.graphSub;
+      document.getElementById('lbl-vectors-ctrl').innerText = t.vectorCtrl;
+      document.getElementById('lbl-thrust').innerText = t.thrust;
+      document.getElementById('lbl-lift').innerText = t.lift;
+      document.getElementById('lbl-drag').innerText = t.drag;
+      document.getElementById('lbl-weight').innerText = t.weight;
+      document.getElementById('lbl-net-force').innerText = t.netForce;
+      document.getElementById('lbl-climb-angle').innerText = t.angle;
+      document.getElementById('lbl-speed').innerText = t.speed;
+      document.getElementById('lbl-altitude').innerText = t.altitude;
+      document.getElementById('lbl-k-fs').innerText = t.kFs;
+      document.getElementById('lbl-k-zoom').innerText = t.kZoom;
+      document.getElementById('lbl-k-shrink').innerText = t.kShrink;
+      document.getElementById('lbl-k-thrust').innerText = t.kThrust;
+      document.getElementById('lbl-k-lift').innerText = t.kLift;
+    }
+
+    let lastTime = performance.now();
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const now = performance.now();
+      const dt = Math.min((now - lastTime) / 1000, 0.1);
+      lastTime = now;
+      state.simTime += dt;
+
+      const T = parseFloat(rngThrust.value) * 1000;
+      const L = parseFloat(rngLift.value) * 1000;
+      const D = parseFloat(rngDrag.value) * 1000;
+      const W = parseFloat(rngWeight.value) * 1000;
+
+      const isOnGround = state.altitude <= 0.05;
+      const N = isOnGround ? Math.max(0, W - L) : 0;
+      const friction = isOnGround && (state.v > 0.1 || T > 0) ? Math.min(T * 0.15 + 8000, N * groundBrakeFactor) : 0;
+
+      const ax = (T - D - friction) / planeMass;
+      let ay = ((L + N) - W) / planeMass;
+
+      if (isOnGround && ay < 0) {
+        ay = 0;
+        state.altitude = 0;
+      }
+
+      state.a = ax;
+      state.v = Math.max(0, state.v + ax * dt);
+      state.s += state.v * dt;
+      state.altitude = Math.max(0, Math.min(25, state.altitude + ay * dt * 2.8));
+
+      historyData.shift();
+      historyData.push({ s: state.s, v: state.v, a: state.a });
+
+      const speedKmH = Math.round(state.v * 3.6);
+      document.getElementById('live-s').innerText = `${state.s.toFixed(1)} m`;
+      document.getElementById('live-v').innerText = `${state.v.toFixed(1)} m/s`;
+      document.getElementById('live-a').innerText = `${state.a >= 0 ? '+' : ''}${state.a.toFixed(2)} m/s²`;
+      document.getElementById('disp-speed').innerText = `${speedKmH} km/h`;
+      document.getElementById('hud-val-speed').innerText = `${speedKmH} km/h`;
+      document.getElementById('disp-altitude').innerText = `${(state.altitude * 10).toFixed(1)} m`;
+
+      const pitchTarget = Math.atan2(ay * 3, Math.max(1, state.v)) * 0.75;
+      airplane.rotation.z += (pitchTarget - airplane.rotation.z) * 0.1;
+      airplane.rotation.x = Math.sin(now * 0.003) * 0.03;
+
+      const targetY = -1.75 + state.altitude * 0.45;
+      airplane.position.y += (targetY - airplane.position.y) * 0.1;
+
+      propGroup.rotation.x += 0.2 + (T / 250000) * 0.9 + (state.v * 0.035);
+
+      const envSpeed = (state.v * 0.8 + 2.0) * dt;
+      runwayLines.forEach(line => {
+        line.position.x -= envSpeed * 1.5;
+        if (line.position.x < -70) line.position.x += 140;
+      });
+      clouds.forEach(cloud => {
+        cloud.position.x -= envSpeed * 1.8;
+        if (cloud.position.x < -70) {
+          cloud.position.x = 70 + Math.random() * 20;
+          cloud.position.y = 3 + Math.random() * 14;
+        }
+      });
+
+      updateVectors();
+      renderer.render(scene, camera);
+      drawKinematicsGraph();
+    }
+
+    function handleResize() {
+      const rect = viewportBox.getBoundingClientRect();
+      const w = rect.width;
+      const h = rect.height;
+
+      if (w > 0 && h > 0) {
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(w, h, false);
+      }
+      resizeGraphs();
+    }
+
+    const resizeObserver = new ResizeObserver(() => handleResize());
+    resizeObserver.observe(viewportBox);
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', () => setTimeout(handleResize, 150));
+
+    window.onload = () => {
+      updateCamera();
+      handleResize();
+      setPhase('rest');
+      animate();
+    };
+  </script>
+</body>
+</html>
